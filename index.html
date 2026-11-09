@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadence</title>
+<!--
+  Cadence on a Nest Hub: a kid's list + their sticker week.
+
+  This is the Cast receiver page (hosted on HTTPS, registered in the Google Cast
+  console). It holds no data: the hub (homeserver/nest.py) sends the list and the
+  sticker pictures over urn:x-cast:com.sevie.cadence, and taps go back the same way
+  ({"type": "toggle", ...} → hub.toggle as that kid, like a tablet tap).
+
+  Preview on a Mac: open preview.html (sample list in preview-data.js; stickers from ../stickers).
+-->
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+<style>
+  :root {
+    --page: #F2F2F2; --card: #FFFFFF; --done-card: #E9E9E9; --text: #1C1C1E;
+    --secondary: #6E6E73; --ring: #C7C7CC; --step: #F2F2F2; --overdue: #EF2D56;
+    --kid: #3D9AD1;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--page); color: var(--text); overflow: hidden; user-select: none;
+    font-family: "Google Sans", Roboto, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    display: flex; flex-direction: column; padding: 18px 22px 14px;
+  }
+  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 12px; }
+  header h1 { margin: 0; font-size: 34px; font-weight: 700; color: var(--kid); }
+  header .count { font-size: 20px; font-weight: 600; color: var(--secondary); }
+  header .error { margin-left: auto; font-size: 16px; color: var(--overdue); font-weight: 600; }
+
+  #list {
+    flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none;
+    display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: max-content; gap: 12px; align-content: start; align-items: start;
+    padding-bottom: 4px;
+  }
+  #list::-webkit-scrollbar { display: none; }
+
+  .card {
+    background: var(--card); border-radius: 22px; padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 10px; min-height: 92px;
+    transition: transform .12s ease, background .3s ease, opacity .3s ease;
+  }
+  .card > *, .steps > * { flex-shrink: 0; }
+  .card.pressed { transform: scale(.97); }
+  .card.done { background: var(--done-card); opacity: .7; }
+  .row { display: flex; align-items: center; gap: 14px; min-height: 64px; }
+  .tile {
+    width: 64px; height: 64px; border-radius: 18px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 38px; font-weight: 700;
+  }
+  .card.done .tile { filter: grayscale(1); opacity: .6; }
+  .words { flex: 1; min-width: 0; }
+  .title { font-size: 26px; font-weight: 600; line-height: 1.15; }
+  .card.done .title { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--secondary); }
+  .detail { font-size: 16px; color: var(--secondary); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .detail.overdue { color: var(--overdue); font-weight: 600; }
+
+  .check {
+    width: 54px; height: 54px; border-radius: 50%; flex: none;
+    border: 4px solid var(--ring); display: flex; align-items: center; justify-content: center;
+    transition: background .2s ease, border-color .2s ease;
+  }
+  .check svg { width: 30px; height: 30px; opacity: 0; transition: opacity .2s ease; }
+  .done .check, .check.on { background: var(--kid); border-color: var(--kid); }
+  .done .check svg, .check.on svg { opacity: 1; }
+  .check.half { border-color: var(--kid); background: linear-gradient(90deg, var(--kid) 50%, transparent 50%); }
+
+  .steps { display: flex; flex-direction: column; gap: 8px; margin-left: 78px; }
+  .step {
+    background: var(--step); border-radius: 14px; padding: 6px 8px 6px 14px;
+    display: flex; align-items: center; gap: 10px; min-height: 52px;
+  }
+  .step .title { font-size: 20px; flex: 1; }
+  .step .loads { font-size: 16px; color: var(--secondary); font-weight: 600; }
+  .step .check { width: 42px; height: 42px; border-width: 3px; }
+  .step .check svg { width: 22px; height: 22px; }
+  .step.done .title { text-decoration: line-through; color: var(--secondary); }
+
+  .all-done {
+    grid-column: 1 / -1; border-radius: 26px; padding: 18px 26px;
+    display: flex; align-items: center; gap: 22px;
+  }
+  .all-done img, .all-done .big { width: 120px; height: 120px; object-fit: contain; font-size: 96px; line-height: 120px; text-align: center; }
+  .all-done h2 { margin: 0; font-size: 40px; color: var(--kid); }
+  .all-done p { margin: 4px 0 0; font-size: 22px; }
+  .later { grid-column: 1 / -1; text-align: center; font-size: 18px; color: var(--secondary); padding: 6px 0 2px; }
+  .empty { grid-column: 1 / -1; text-align: center; font-size: 22px; color: var(--secondary); padding-top: 60px; }
+
+  footer {
+    margin-top: 12px; background: var(--card); border-radius: 22px; padding: 10px 18px 12px;
+    display: flex; align-items: center; gap: 18px; flex: none;
+  }
+  footer .label { width: 128px; flex: none; }
+  footer .label b { display: block; font-size: 20px; color: var(--kid); }
+  footer .label span { font-size: 16px; color: var(--secondary); font-weight: 600; }
+  .days { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .day { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .day .letter { font-size: 14px; font-weight: 700; color: var(--secondary); }
+  .day.today .letter { color: var(--kid); }
+  .spot { width: 74px; height: 74px; display: flex; align-items: center; justify-content: center; position: relative; }
+  .spot img { width: 86px; height: 86px; object-fit: contain; }
+  .spot .dot { width: 46px; height: 46px; border-radius: 50%; background: #E5E5EA;
+    display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; color: var(--secondary); }
+  .day.today .dot { background: transparent; border: 4px solid var(--kid); color: var(--kid); }
+  .day.blank .dot { opacity: .45; }
+  .pop { animation: pop .7s cubic-bezier(.2, 1.6, .4, 1); }
+  @keyframes pop { 0% { transform: scale(.2); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+  #waiting { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 24px; color: var(--secondary); background: var(--page); }
+</style>
+</head>
+<body>
+<div id="waiting">Getting the list…</div>
+<header>
+  <h1 id="name"></h1>
+  <span class="count" id="count"></span>
+  <span class="error" id="error"></span>
+</header>
+<div id="list"></div>
+<footer id="stickers" hidden>
+  <div class="label"><b id="sticker-title">Stickers</b><span id="sticker-count"></span></div>
+  <div class="days" id="days"></div>
+</footer>
+
+<script>
+"use strict";
+const NS = "urn:x-cast:com.sevie.cadence";
+const PREVIEW = location.search.includes("preview");
+const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+// The tablet's all-done pictures (one a day).
+const ALL_DONE = ["🌟", "🏆", "🎉", "🚀", "🦖", "⛸️", "🦸", "🌈", "🐶", "🎈", "🦄", "🍦"];
+// SF Symbols the phone sends for items without an emoji → something a web page can show.
+const SYMBOLS = {
+  "house": "🏠", "house.fill": "🏠", "book": "📚", "book.fill": "📚", "pencil": "✏️",
+  "backpack": "🎒", "backpack.fill": "🎒", "sun.max": "☀️", "sun.max.fill": "☀️",
+  "moon": "🌙", "moon.fill": "🌙", "moon.stars": "🌙", "bed.double": "🛏️", "bed.double.fill": "🛏️",
+  "tshirt": "👕", "tshirt.fill": "👕", "shoe": "👟", "shoe.fill": "👟", "toothbrush": "🪥",
+  "hands.sparkles": "🧼", "trash": "🗑️", "trash.fill": "🗑️", "basket": "🧺", "basket.fill": "🧺",
+  "fork.knife": "🍽️", "pawprint": "🐾", "pawprint.fill": "🐾", "leaf": "🌱", "sparkles": "✨",
+  "checklist": "📝", "doc.text": "📝", "star": "⭐️", "star.fill": "⭐️",
+};
+
+let state = null;          // the hub's last list
+const pending = new Map(); // itemID → the list as we showed it before the tap (undo on error)
+const stickers = {};       // sticker name → image URL
+let context = null;
+let wasAllDone = null;
+
+// ---------- talking to the hub ----------
+
+function send(message) {
+  if (PREVIEW) return previewHub(message);
+  if (context) context.sendCustomMessage(NS, undefined, message);
+}
+
+function onMessage(data) {
+  if (!data || typeof data !== "object") return;
+  if (data.type === "sticker" && data.name && data.png) {
+    stickers[data.name] = "data:image/png;base64," + data.png;
+    if (state) render();
+  } else if (data.type === "list") {
+    pending.clear();
+    state = data;
+    render();
+  } else if (data.type === "result" && !data.ok) {
+    const before = pending.get(data.itemID);
+    if (before) { state = before; pending.delete(data.itemID); render(); }
+    showError(data.error === "not_on_today" ? "That one isn't on today's list any more" : "Couldn't check that off");
+  }
+}
+
+function showError(text) {
+  const el = document.getElementById("error");
+  el.textContent = text;
+  clearTimeout(showError.timer);
+  showError.timer = setTimeout(() => { el.textContent = ""; }, 6000);
+}
+
+if (!PREVIEW && window.cast && cast.framework) {
+  context = cast.framework.CastReceiverContext.getInstance();
+  context.addCustomMessageListener(NS, (event) => onMessage(event.data));
+  context.addEventListener(cast.framework.system.EventType.SENDER_CONNECTED, () => send({ type: "hello" }));
+  const options = new cast.framework.CastReceiverOptions();
+  options.customNamespaces = { [NS]: cast.framework.system.MessageType.JSON };
+  options.disableIdleTimeout = true;     // stays up while the hub keeps it on
+  options.touchScreenOptimizedApp = true; // taps reach the page (Nest Hub)
+  options.skipPlayersLoad = true;         // no media here
+  context.start(options);
+}
+
+// ---------- taps ----------
+
+function tapItem(item) {
+  const done = item.state !== "done";
+  remember(item.id);
+  item.state = done ? "done" : "open";
+  (item.steps || []).forEach((s) => { s.done = done ? (s.of || 1) : 0; });
+  chime(done);
+  render();
+  send({ type: "toggle", itemID: item.id, done });
+}
+
+function tapStep(item, step) {
+  const of = step.of || 1;
+  const count = step.done >= of ? 0 : step.done + 1;  // loads: one more each tap, then back to none
+  remember(item.id);
+  step.done = count;
+  const steps = item.steps || [];
+  item.state = steps.every((s) => s.done >= (s.of || 1)) ? "done" : steps.some((s) => s.done > 0) ? "partial" : "open";
+  chime(count > 0);
+  render();
+  send({ type: "toggle", itemID: item.id, done: item.state === "done", stepID: step.id, count });
+}
+
+function remember(itemID) {
+  if (!pending.has(itemID)) pending.set(itemID, JSON.parse(JSON.stringify(state)));
+}
+
+function press(el, action) {
+  el.addEventListener("pointerdown", () => el.classList.add("pressed"));
+  ["pointerup", "pointerleave", "pointercancel"].forEach((t) => el.addEventListener(t, () => el.classList.remove("pressed")));
+  el.addEventListener("click", (e) => { e.stopPropagation(); action(); });
+}
+
+// ---------- sounds (the tablet's chime and ta-da) ----------
+
+let audio = null;
+function tone(freq, start, length, volume) {
+  audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+  const t = audio.currentTime + start, osc = audio.createOscillator(), gain = audio.createGain();
+  osc.type = "sine"; osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(volume, t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + length);
+  osc.connect(gain).connect(audio.destination);
+  osc.start(t); osc.stop(t + length + 0.05);
+}
+function chime(on) {
+  try { if (on) { tone(1046.5, 0, 0.35, 0.18); tone(1568, 0.08, 0.45, 0.14); } } catch (e) { /* no sound */ }
+}
+function celebrate() {
+  try { [783.99, 1046.5, 1318.5, 1568, 2093].forEach((f, i) => tone(f, i * 0.11, i === 4 ? 1.2 : 0.4, 0.16)); } catch (e) { /* no sound */ }
+}
+
+// ---------- drawing ----------
+
+function tint(hex, alpha) {
+  const n = parseInt((hex || "#8E8E93").replace("#", ""), 16);
+  return `rgba(${n >> 16 & 255}, ${n >> 8 & 255}, ${n & 255}, ${alpha})`;
+}
+
+function el(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html != null) e.innerHTML = html;
+  return e;
+}
+
+function text(s) {
+  return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function dayOfYear(iso) {
+  const d = new Date(iso + "T12:00:00");
+  return Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
+}
+
+function stickerEarned(day, items) {
+  if (day.earned) return true;
+  if (day.date !== state.date || !day.needs || !day.needs.length) return false;
+  const byID = Object.fromEntries(items.map((i) => [i.id, i]));
+  return day.needs.every((id) => byID[id] && byID[id].state === "done");
+}
+
+function stickerImage(name) {
+  if (stickers[name]) return stickers[name];
+  return PREVIEW ? `../stickers/sticker_${name}.png` : null;
+}
+
+function render() {
+  document.getElementById("waiting").hidden = true;
+  const kid = state.color || "#3D9AD1";
+  document.documentElement.style.setProperty("--kid", kid);
+  const name = state.name || "";
+  document.getElementById("name").textContent = name ? `${name}'s list` : "Today";
+
+  const items = state.items || [];
+  const open = items.filter((i) => i.state !== "done");
+  const finished = items.filter((i) => i.state === "done");
+  document.getElementById("count").textContent = items.length
+    ? (open.length ? `${finished.length} of ${items.length} done` : "All done!") : "";
+
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  const allDone = items.length > 0 && open.length === 0;
+  if (allDone) {
+    const week = state.stickers || [];
+    const today = week.find((d) => d.date === state.date);
+    const picture = today && stickerEarned(today, items) && stickerImage(today.sticker);
+    const card = el("div", "all-done");
+    card.style.background = tint(kid, 0.22);
+    card.appendChild(picture ? Object.assign(el("img"), { src: picture, alt: "" })
+                             : el("div", "big", ALL_DONE[dayOfYear(state.date) % ALL_DONE.length]));
+    const words = el("div", null, `<h2>All done!</h2><p>Great job${name ? ", " + text(name) : ""}!</p>`);
+    card.appendChild(words);
+    list.appendChild(card);
+    if (wasAllDone === false) { celebrate(); card.querySelector("img, .big").classList.add("pop"); }
+  }
+  wasAllDone = items.length ? allDone : null;
+
+  if (!items.length) list.appendChild(el("div", "empty", "Nothing on the list right now"));
+  for (const item of [...open, ...finished]) list.appendChild(itemCard(item));
+  if (state.later) list.appendChild(el("div", "later", allDone ? "More later today 🌙" : "More later today"));
+
+  drawStickers(items);
+}
+
+function itemCard(item) {
+  const done = item.state === "done";
+  const card = el("div", "card" + (done ? " done" : ""));
+  const row = el("div", "row");
+  const tile = el("div", "tile", text(item.emoji || SYMBOLS[item.symbol] || (item.title || "?").charAt(0)));
+  tile.style.background = tint(item.tintHex, 0.2);
+  if (!item.emoji && !SYMBOLS[item.symbol]) tile.style.color = item.tintHex;
+  row.appendChild(tile);
+  const words = el("div", "words", `<div class="title">${text(item.title)}</div>`);
+  if (item.detail || item.overdue) {
+    words.appendChild(el("div", "detail" + (item.overdue ? " overdue" : ""),
+                         text(item.overdue ? "From before" + (item.detail ? " · " + item.detail : "") : item.detail)));
+  }
+  row.appendChild(words);
+  const check = el("div", "check" + (item.state === "partial" ? " half" : ""), CHECK);
+  row.appendChild(check);
+  card.appendChild(row);
+
+  const steps = item.steps || [];
+  if (steps.length) {
+    // Steps get their own circles (like the tablet); the card's circle does them all.
+    const box = el("div", "steps");
+    for (const step of steps) {
+      const of = step.of || 1, stepDone = step.done >= of;
+      const s = el("div", "step" + (stepDone ? " done" : ""));
+      s.appendChild(el("div", "title", text(step.title)));
+      if (of > 1) s.appendChild(el("span", "loads", `${step.done}/${of}`));
+      s.appendChild(el("div", "check" + (stepDone ? " on" : step.done > 0 ? " half" : ""), CHECK));
+      press(s, () => tapStep(item, step));
+      box.appendChild(s);
+    }
+    card.appendChild(box);
+    press(row, () => tapItem(item));
+  } else {
+    press(card, () => tapItem(item));
+  }
+  return card;
+}
+
+function drawStickers(items) {
+  const week = state.stickers || [];
+  const footer = document.getElementById("stickers");
+  footer.hidden = !week.length;
+  if (!week.length) return;
+  document.getElementById("sticker-title").textContent = "Stickers";
+  const earned = week.filter((d) => stickerEarned(d, items)).length;
+  document.getElementById("sticker-count").textContent = earned ? `${earned} this week` : "None yet";
+  const days = document.getElementById("days");
+  const before = new Set([...days.querySelectorAll(".day.got")].map((d) => d.dataset.date));
+  days.innerHTML = "";
+  for (const d of week) {
+    const date = new Date(d.date + "T12:00:00");
+    const isToday = d.date === state.date, got = stickerEarned(d, items);
+    const day = el("div", "day" + (isToday ? " today" : "") + (got ? " got" : "") + (!d.possible && !got ? " blank" : ""));
+    day.dataset.date = d.date;
+    day.appendChild(el("div", "letter", isToday ? "TODAY" : date.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()));
+    const spot = el("div", "spot");
+    const picture = got && stickerImage(d.sticker);
+    if (picture) {
+      const img = Object.assign(el("img"), { src: picture, alt: "" });
+      if (isToday && !before.has(d.date) && drawStickers.drawn) img.classList.add("pop"); // just earned
+      spot.appendChild(img);
+    } else {
+      spot.appendChild(el("div", "dot", got ? "⭐️" : String(date.getDate())));
+    }
+    day.appendChild(spot);
+    days.appendChild(day);
+  }
+  drawStickers.drawn = true;
+}
+
+// ---------- preview (a Mac browser): the hub faked here; the sample list is in preview-data.js ----------
+
+function previewHub(message) {
+  if (message.type !== "toggle") return;
+  // The real hub answers with a new list; here the page's own change stands.
+  setTimeout(() => pending.delete(message.itemID), 200);
+}
+
+</script>
+<script>if (PREVIEW) document.write('<script src="preview-data.js"><\/script>');</script>
+</body>
+</html>
