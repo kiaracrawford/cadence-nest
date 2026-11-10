@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cadence</title>
 <!--
-  Cadence on a Nest Hub: a kid's list + their sticker week.
+  Cadence on a Nest Hub: a kid's list + their sticker week, in the tablet widgets' look
+  (Chores + Sticker chart), sized up for little fingers, with the time.
 
   This is the Cast receiver page (hosted on HTTPS, registered in the Google Cast
   console). It holds no data: the hub (homeserver/nest.py) sends the list and the
@@ -15,101 +16,100 @@
   Preview on a Mac: open preview.html (sample list in preview-data.js; stickers from ../stickers).
 -->
 <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
+  /* The tablet's colors (CadenceWidget Palette / StickerPalette); charcoal 8 PM–6 AM like it. */
   :root {
     --page: #F2F2F2; --card: #FFFFFF; --done-card: #E9E9E9; --text: #1C1C1E;
     --secondary: #6E6E73; --ring: #C7C7CC; --step: #F2F2F2; --overdue: #EF2D56;
-    --kid: #3D9AD1;
+    --empty: #E3E3E8; --line: #E0E0E5; --all-done-base: #FFFFFF; --all-done-mix: 22%;
+    --done: #0CCE6B; --partial: #ED7D3A; --kid: #3D9AD1;
+  }
+  :root.night {
+    --page: #2B2B2E; --card: #3A3A3D; --done-card: #333336; --text: #F2F2F7;
+    --secondary: #AEAEB2; --ring: #5E5E62; --step: #2B2B2E; --empty: #444448; --line: #3A3A3D;
+    --all-done-base: #3A3A3D; --all-done-mix: 35%;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   [hidden] { display: none !important; }
+  /* The Cast library's own media touch layer covers the page and eats every tap (seen on
+     the upstairs Nest Hub, 2026-11-09). No media here, so it goes. */
+  touch-controls { display: none !important; }
   html, body { margin: 0; height: 100%; }
   body {
     background: var(--page); color: var(--text); overflow: hidden; user-select: none;
-    font-family: "Google Sans", Roboto, -apple-system, "Helvetica Neue", Arial, sans-serif;
-    display: flex; flex-direction: column; padding: 18px 22px 14px;
+    font-family: Roboto, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    display: flex; flex-direction: column; padding: 16px 22px 12px;
   }
-  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 12px; }
-  header h1 { margin: 0; font-size: 34px; font-weight: 700; color: var(--kid); }
-  header .count { font-size: 20px; font-weight: 600; color: var(--secondary); }
-  header .error { margin-left: auto; font-size: 16px; color: var(--overdue); font-weight: 600; }
+
+  /* Name + "3 to do" (the tablet's column header), the time on the right. */
+  header { display: flex; align-items: center; gap: 12px; margin: 0 4px 12px; flex: none; }
+  header h1 { margin: 0; font-size: 30px; font-weight: 700; color: var(--kid); }
+  header .summary { font-size: 19px; color: var(--secondary); }
+  header .error { font-size: 15px; color: var(--overdue); font-weight: 600; }
+  header .clock { margin-left: auto; font-size: 38px; font-weight: 600; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+  header .clock small { font-size: 18px; font-weight: 600; color: var(--secondary); margin-left: 5px; letter-spacing: 0; }
 
   #list {
     flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none;
-    display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: max-content; gap: 12px; align-content: start; align-items: start;
-    padding-bottom: 4px;
+    display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: max-content;
+    gap: 10px; align-content: start; align-items: start; padding-bottom: 6px;
   }
   #list::-webkit-scrollbar { display: none; }
+  .wide { grid-column: 1 / -1; }
 
-  .card {
-    background: var(--card); border-radius: 22px; padding: 14px 16px;
-    display: flex; flex-direction: column; gap: 10px; min-height: 92px;
-    transition: transform .12s ease, background .3s ease, opacity .3s ease;
-  }
-  .card > *, .steps > * { flex-shrink: 0; }
+  /* A card: icon tile, name and detail, check circle (the tablet's CardBody). */
+  .card { background: var(--card); border-radius: 22px; padding: 10px 12px 10px 12px; transition: transform .12s ease; }
   .card.pressed { transform: scale(.97); }
-  .card.done { background: var(--done-card); opacity: .7; }
-  .row { display: flex; align-items: center; gap: 14px; min-height: 64px; }
-  .tile {
-    width: 64px; height: 64px; border-radius: 18px; flex: none;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 38px; font-weight: 700;
-  }
-  .card.done .tile { filter: grayscale(1); opacity: .6; }
+  .card.done { background: var(--done-card); }
+  .card.overdue { box-shadow: 0 0 0 3px var(--overdue); }
+  .card > *, .steps > * { flex-shrink: 0; }
+  .top { display: flex; align-items: center; gap: 12px; min-height: 60px; }
+  .tile { width: 56px; height: 56px; border-radius: 15px; flex: none; display: flex; align-items: center;
+    justify-content: center; font-size: 30px; font-weight: 700; }
+  .card.done .tile { filter: grayscale(1); opacity: .55; }
   .words { flex: 1; min-width: 0; }
-  .title { font-size: 26px; font-weight: 600; line-height: 1.15; }
-  .card.done .title { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--secondary); }
-  .detail { font-size: 16px; color: var(--secondary); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .detail.overdue { color: var(--overdue); font-weight: 600; }
+  .title { font-size: 23px; font-weight: 500; line-height: 1.2; }
+  .card.done .title { color: var(--secondary); }
+  .detail { font-size: 15px; color: var(--secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .detail.overdue { color: var(--overdue); }
+  .chev { width: 30px; height: 30px; flex: none; color: var(--secondary); }
 
-  .check {
-    width: 54px; height: 54px; border-radius: 50%; flex: none;
-    border: 4px solid var(--ring); display: flex; align-items: center; justify-content: center;
-    transition: background .2s ease, border-color .2s ease;
-  }
-  .check svg { width: 30px; height: 30px; opacity: 0; transition: opacity .2s ease; }
-  .done .check, .check.on { background: var(--kid); border-color: var(--kid); }
-  .done .check svg, .check.on svg { opacity: 1; }
-  .check.half { border-color: var(--kid); background: linear-gradient(90deg, var(--kid) 50%, transparent 50%); }
+  .circle { width: 46px; height: 46px; flex: none; }
+  .steps { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px 68px; }
+  .step { background: var(--step); border-radius: 16px; padding: 4px 6px 4px 16px; display: flex; align-items: center; gap: 10px; min-height: 52px; }
+  .step .name { flex: 1; font-size: 19px; }
+  .step.done .name { color: var(--secondary); }
+  .step .loads { font-size: 15px; color: var(--secondary); }
+  .step .circle { width: 40px; height: 40px; }
 
-  .steps { display: flex; flex-direction: column; gap: 8px; margin-left: 78px; }
-  .step {
-    background: var(--step); border-radius: 14px; padding: 6px 8px 6px 14px;
-    display: flex; align-items: center; gap: 10px; min-height: 52px;
-  }
-  .step .title { font-size: 20px; flex: 1; }
-  .step .loads { font-size: 16px; color: var(--secondary); font-weight: 600; }
-  .step .check { width: 42px; height: 42px; border-width: 3px; }
-  .step .check svg { width: 22px; height: 22px; }
-  .step.done .title { text-decoration: line-through; color: var(--secondary); }
+  /* "Done (4) ›" (the tablet's DoneRow). */
+  .done-row { display: flex; align-items: center; gap: 4px; padding: 8px 8px 6px; font-size: 17px; font-weight: 500; color: var(--secondary); }
+  .done-row svg { width: 24px; height: 24px; }
 
-  .all-done {
-    grid-column: 1 / -1; border-radius: 26px; padding: 18px 26px;
-    display: flex; align-items: center; gap: 22px;
-  }
-  .all-done img, .all-done .big { width: 120px; height: 120px; object-fit: contain; font-size: 96px; line-height: 120px; text-align: center; }
-  .all-done h2 { margin: 0; font-size: 40px; color: var(--kid); }
-  .all-done p { margin: 4px 0 0; font-size: 22px; }
-  .later { grid-column: 1 / -1; text-align: center; font-size: 18px; color: var(--secondary); padding: 6px 0 2px; }
-  .empty { grid-column: 1 / -1; text-align: center; font-size: 22px; color: var(--secondary); padding-top: 60px; }
+  /* Everything checked off (the tablet's AllDoneCard). */
+  .all-done { border-radius: 24px; padding: 14px 12px 18px; text-align: center;
+    background: color-mix(in srgb, var(--kid) var(--all-done-mix), var(--all-done-base)); }
+  .all-done img, .all-done .big { width: 120px; height: 120px; object-fit: contain; display: block; margin: 0 auto 4px; font-size: 96px; line-height: 120px; }
+  .all-done h2 { margin: 0; font-size: 32px; font-weight: 700; color: var(--kid); }
+  .all-done p { margin: 2px 0 0; font-size: 19px; font-weight: 500; }
+  .note { text-align: center; font-size: 17px; color: var(--secondary); padding: 4px 0; }
+  .empty { text-align: center; font-size: 22px; color: var(--secondary); padding-top: 60px; }
 
-  footer {
-    margin-top: 12px; background: var(--card); border-radius: 22px; padding: 10px 18px 12px;
-    display: flex; align-items: center; gap: 18px; flex: none;
-  }
-  footer .label { width: 128px; flex: none; }
-  footer .label b { display: block; font-size: 20px; color: var(--kid); }
-  footer .label span { font-size: 16px; color: var(--secondary); font-weight: 600; }
-  .days { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
-  .day { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .day .letter { font-size: 14px; font-weight: 700; color: var(--secondary); }
-  .day.today .letter { color: var(--kid); }
-  .spot { width: 74px; height: 74px; display: flex; align-items: center; justify-content: center; position: relative; }
-  .spot img { width: 86px; height: 86px; object-fit: contain; }
-  .spot .dot { width: 46px; height: 46px; border-radius: 50%; background: #E5E5EA;
-    display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; color: var(--secondary); }
-  .day.today .dot { background: transparent; border: 4px solid var(--kid); color: var(--kid); }
-  .day.blank .dot { opacity: .45; }
+  /* Sticker chart (the tablet's StickerWidget). */
+  #stickers { flex: none; border-top: 1px solid var(--line); margin-top: 6px; padding: 10px 4px 0; }
+  #stickers .head { display: flex; align-items: baseline; }
+  #stickers h2 { margin: 0; font-size: 21px; font-weight: 700; color: var(--kid); }
+  #stickers .count { margin-left: auto; font-size: 16px; color: var(--secondary); }
+  .days { display: grid; grid-template-columns: repeat(7, 1fr); margin-top: 4px; }
+  .day { display: flex; flex-direction: column; align-items: center; }
+  .day .name { font-size: 14px; font-weight: 500; color: var(--secondary); height: 18px; }
+  .day.today .name { color: var(--kid); font-weight: 700; }
+  .spot { height: 78px; display: flex; align-items: center; justify-content: center; }
+  .spot img { width: 76px; height: 76px; object-fit: contain; }
+  .spot .dot { width: 64px; height: 64px; border-radius: 50%; background: var(--empty); }
+  .day.today .dot { box-shadow: inset 0 0 0 4px var(--kid); }
   .pop { animation: pop .7s cubic-bezier(.2, 1.6, .4, 1); }
   @keyframes pop { 0% { transform: scale(.2); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
 
@@ -121,21 +121,33 @@
 <div id="waiting">Getting the list…</div>
 <header>
   <h1 id="name"></h1>
-  <span class="count" id="count"></span>
+  <span class="summary" id="summary"></span>
   <span class="error" id="error"></span>
+  <span class="clock" id="clock"></span>
 </header>
 <div id="list"></div>
-<footer id="stickers" hidden>
-  <div class="label"><b id="sticker-title">Stickers</b><span id="sticker-count"></span></div>
+<section id="stickers" hidden>
+  <div class="head"><h2 id="sticker-title">Stickers</h2><span class="count" id="sticker-count"></span></div>
   <div class="days" id="days"></div>
-</footer>
+</section>
 
 <script>
 "use strict";
 const NS = "urn:x-cast:com.sevie.cadence";
 const PREVIEW = location.search.includes("preview");
-const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-// The tablet's all-done pictures (one a day).
+const ZONE = "America/New_York";
+// The tablet's check circles (ic_check_open / ic_check_done / ic_check_partial).
+const CIRCLE = {
+  open: '<svg class="circle" viewBox="0 0 28 28"><circle cx="14" cy="14" r="12.6" fill="none" stroke="var(--ring)" stroke-width="2.2"/></svg>',
+  done: '<svg class="circle" viewBox="0 0 28 28"><circle cx="14" cy="14" r="14" fill="var(--done)"/><path d="M8.5 14.5l3.7 3.7 7.3-8" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  partial: '<svg class="circle" viewBox="0 0 28 28"><circle cx="14" cy="14" r="14" fill="var(--partial)"/><path d="M9 14h10" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>',
+};
+const CHEVRON = {
+  right: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+  down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
+  up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
+};
+// The tablet's all-done pictures (one a day), when today's sticker isn't here.
 const ALL_DONE = ["🌟", "🏆", "🎉", "🚀", "🦖", "⛸️", "🦸", "🌈", "🐶", "🎈", "🦄", "🍦"];
 // SF Symbols the phone sends for items without an emoji → something a web page can show.
 const SYMBOLS = {
@@ -151,8 +163,24 @@ const SYMBOLS = {
 let state = null;          // the hub's last list
 const pending = new Map(); // itemID → the list as we showed it before the tap (undo on error)
 const stickers = {};       // sticker name → image URL
+const expanded = new Set(); // chores with their steps showing
+let showDone = false;      // "Done (n)" open
 let context = null;
 let wasAllDone = null;
+
+// ---------- the time, and the evening look ----------
+
+function clock() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: ZONE, hour: "numeric", minute: "2-digit", hour12: true })
+    .formatToParts(now);
+  const get = (t) => (parts.find((p) => p.type === t) || {}).value || "";
+  document.getElementById("clock").innerHTML = `${get("hour")}:${get("minute")}<small>${get("dayPeriod")}</small>`;
+  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: ZONE, hour: "numeric", hourCycle: "h23" }).format(now));
+  document.documentElement.classList.toggle("night", hour >= 20 || hour < 6);
+}
+clock();
+setInterval(clock, 5000);
 
 // ---------- talking to the hub ----------
 
@@ -168,6 +196,7 @@ function onMessage(data) {
     if (state) render();
   } else if (data.type === "list") {
     pending.clear();
+    if (state && state.date !== data.date) { expanded.clear(); showDone = false; }
     state = data;
     render();
   } else if (data.type === "result" && !data.ok) {
@@ -190,7 +219,7 @@ if (!PREVIEW && window.cast && cast.framework) {
   context.addEventListener(cast.framework.system.EventType.SENDER_CONNECTED, () => send({ type: "hello" }));
   const options = new cast.framework.CastReceiverOptions();
   options.customNamespaces = { [NS]: cast.framework.system.MessageType.JSON };
-  options.disableIdleTimeout = true;     // stays up while the hub keeps it on
+  options.disableIdleTimeout = true;      // stays up while the hub keeps it on
   options.touchScreenOptimizedApp = true; // taps reach the page (Nest Hub)
   options.skipPlayersLoad = true;         // no media here
   context.start(options);
@@ -224,9 +253,9 @@ function remember(itemID) {
   if (!pending.has(itemID)) pending.set(itemID, JSON.parse(JSON.stringify(state)));
 }
 
-function press(el, action) {
-  el.addEventListener("pointerdown", () => el.classList.add("pressed"));
-  ["pointerup", "pointerleave", "pointercancel"].forEach((t) => el.addEventListener(t, () => el.classList.remove("pressed")));
+function press(el, action, pressed = el) {
+  el.addEventListener("pointerdown", () => pressed.classList.add("pressed"));
+  ["pointerup", "pointerleave", "pointercancel"].forEach((t) => el.addEventListener(t, () => pressed.classList.remove("pressed")));
   el.addEventListener("click", (e) => { e.stopPropagation(); action(); });
 }
 
@@ -290,95 +319,111 @@ function render() {
   const kid = state.color || "#3D9AD1";
   document.documentElement.style.setProperty("--kid", kid);
   const name = state.name || "";
-  document.getElementById("name").textContent = name ? `${name}'s list` : "Today";
+  document.getElementById("name").textContent = name || "Today";
 
   const items = state.items || [];
   const open = items.filter((i) => i.state !== "done");
   const finished = items.filter((i) => i.state === "done");
-  document.getElementById("count").textContent = items.length
-    ? (open.length ? `${finished.length} of ${items.length} done` : "All done!") : "";
+  // The tablet's summary line.
+  document.getElementById("summary").textContent =
+    !items.length ? (state.later ? "Nothing yet" : "Nothing today")
+    : !open.length ? (state.later ? "Done for now" : "All done")
+    : `${open.length} to do`;
 
   const list = document.getElementById("list");
+  const scroll = list.scrollTop;
   list.innerHTML = "";
   const allDone = items.length > 0 && open.length === 0;
-  if (allDone) {
+  if (allDone && !state.later) {
     const week = state.stickers || [];
     const today = week.find((d) => d.date === state.date);
     const picture = today && stickerEarned(today, items) && stickerImage(today.sticker);
-    const card = el("div", "all-done");
-    card.style.background = tint(kid, 0.22);
+    const card = el("div", "all-done wide");
     card.appendChild(picture ? Object.assign(el("img"), { src: picture, alt: "" })
                              : el("div", "big", ALL_DONE[dayOfYear(state.date) % ALL_DONE.length]));
-    const words = el("div", null, `<h2>All done!</h2><p>Great job${name ? ", " + text(name) : ""}!</p>`);
-    card.appendChild(words);
+    card.appendChild(el("h2", null, "All done!"));
+    card.appendChild(el("p", null, `Great job${name ? ", " + text(name) : ""}!`));
     list.appendChild(card);
-    if (wasAllDone === false) { celebrate(); card.querySelector("img, .big").classList.add("pop"); }
+    if (wasAllDone === false) { celebrate(); card.firstChild.classList.add("pop"); }
   }
   wasAllDone = items.length ? allDone : null;
 
-  if (!items.length) list.appendChild(el("div", "empty", "Nothing on the list right now"));
-  for (const item of [...open, ...finished]) list.appendChild(itemCard(item));
-  if (state.later) list.appendChild(el("div", "later", allDone ? "More later today 🌙" : "More later today"));
+  if (!items.length) list.appendChild(el("div", "empty wide", state.later ? "More later today" : "Nothing on the list today"));
+  for (const item of open) list.appendChild(itemCard(item));
+  if (allDone && state.later) list.appendChild(el("div", "note wide", "Done for now. More later today 🌙"));
+  if (finished.length) {
+    const row = el("div", "done-row wide", `Done (${finished.length}) ${showDone ? CHEVRON.down : CHEVRON.right}`);
+    press(row, () => { showDone = !showDone; render(); });
+    list.appendChild(row);
+    if (showDone) for (const item of finished) list.appendChild(itemCard(item));
+  }
+  list.scrollTop = scroll;
 
   drawStickers(items);
 }
 
 function itemCard(item) {
   const done = item.state === "done";
-  const card = el("div", "card" + (done ? " done" : ""));
-  const row = el("div", "row");
-  const tile = el("div", "tile", text(item.emoji || SYMBOLS[item.symbol] || (item.title || "?").charAt(0)));
-  tile.style.background = tint(item.tintHex, 0.2);
-  if (!item.emoji && !SYMBOLS[item.symbol]) tile.style.color = item.tintHex;
-  row.appendChild(tile);
-  const words = el("div", "words", `<div class="title">${text(item.title)}</div>`);
-  if (item.detail || item.overdue) {
-    words.appendChild(el("div", "detail" + (item.overdue ? " overdue" : ""),
-                         text(item.overdue ? "From before" + (item.detail ? " · " + item.detail : "") : item.detail)));
-  }
-  row.appendChild(words);
-  const check = el("div", "check" + (item.state === "partial" ? " half" : ""), CHECK);
-  row.appendChild(check);
-  card.appendChild(row);
-
   const steps = item.steps || [];
-  if (steps.length) {
-    // Steps get their own circles (like the tablet); the card's circle does them all.
+  const card = el("div", "card" + (done ? " done" : "") + (item.overdue && !done ? " overdue" : ""));
+  const top = el("div", "top");
+  const tile = el("div", "tile", text(item.emoji || SYMBOLS[item.symbol] || (item.title || "?").charAt(0)));
+  tile.style.background = tint(item.tintHex, 0.18);
+  if (!item.emoji && !SYMBOLS[item.symbol]) tile.style.color = item.tintHex;
+  top.appendChild(tile);
+  const words = el("div", "words", `<div class="title">${text(item.title)}</div>`);
+  const detail = [item.overdue ? "Overdue" : null, item.detail || null,
+                  steps.length ? `${steps.filter((s) => s.done >= (s.of || 1)).length} of ${steps.length} steps` : null]
+    .filter(Boolean).join(" · ");
+  if (detail && !done) words.appendChild(el("div", "detail" + (item.overdue ? " overdue" : ""), text(detail)));
+  top.appendChild(words);
+  const isOpen = expanded.has(item.id);
+  if (steps.length) top.appendChild(el("div", "chev", isOpen ? CHEVRON.up : CHEVRON.down));
+  const circle = el("div", null, CIRCLE[done ? "done" : item.state === "partial" ? "partial" : "open"]);
+  top.appendChild(circle);
+  card.appendChild(top);
+
+  if (!steps.length) {
+    // No steps: the whole card checks it off (bigger target for Liam than the tablet's circle).
+    press(card, () => tapItem(item));
+    return card;
+  }
+  // Steps (the tablet's way): the name opens and closes them; the circle does the whole chore.
+  press(circle, () => tapItem(item), card);
+  press(words, () => { isOpen ? expanded.delete(item.id) : expanded.add(item.id); render(); });
+  if (isOpen) {
     const box = el("div", "steps");
     for (const step of steps) {
       const of = step.of || 1, stepDone = step.done >= of;
       const s = el("div", "step" + (stepDone ? " done" : ""));
-      s.appendChild(el("div", "title", text(step.title)));
+      s.appendChild(el("div", "name", text(step.title)));
       if (of > 1) s.appendChild(el("span", "loads", `${step.done}/${of}`));
-      s.appendChild(el("div", "check" + (stepDone ? " on" : step.done > 0 ? " half" : ""), CHECK));
+      s.insertAdjacentHTML("beforeend", CIRCLE[stepDone ? "done" : step.done > 0 ? "partial" : "open"]);
       press(s, () => tapStep(item, step));
       box.appendChild(s);
     }
     card.appendChild(box);
-    press(row, () => tapItem(item));
-  } else {
-    press(card, () => tapItem(item));
   }
   return card;
 }
 
 function drawStickers(items) {
   const week = state.stickers || [];
-  const footer = document.getElementById("stickers");
-  footer.hidden = !week.length;
+  const section = document.getElementById("stickers");
+  section.hidden = !week.length;
   if (!week.length) return;
-  document.getElementById("sticker-title").textContent = "Stickers";
+  document.getElementById("sticker-title").textContent = state.name ? `${state.name}’s stickers` : "Stickers";
   const earned = week.filter((d) => stickerEarned(d, items)).length;
-  document.getElementById("sticker-count").textContent = earned ? `${earned} this week` : "None yet";
+  document.getElementById("sticker-count").textContent = `${earned} this week`;
   const days = document.getElementById("days");
   const before = new Set([...days.querySelectorAll(".day.got")].map((d) => d.dataset.date));
   days.innerHTML = "";
   for (const d of week) {
     const date = new Date(d.date + "T12:00:00");
     const isToday = d.date === state.date, got = stickerEarned(d, items);
-    const day = el("div", "day" + (isToday ? " today" : "") + (got ? " got" : "") + (!d.possible && !got ? " blank" : ""));
+    const day = el("div", "day" + (isToday ? " today" : "") + (got ? " got" : ""));
     day.dataset.date = d.date;
-    day.appendChild(el("div", "letter", isToday ? "TODAY" : date.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()));
+    day.appendChild(el("div", "name", date.toLocaleDateString("en-US", { weekday: "short" })));
     const spot = el("div", "spot");
     const picture = got && stickerImage(d.sticker);
     if (picture) {
@@ -386,7 +431,7 @@ function drawStickers(items) {
       if (isToday && !before.has(d.date) && drawStickers.drawn) img.classList.add("pop"); // just earned
       spot.appendChild(img);
     } else {
-      spot.appendChild(el("div", "dot", got ? "⭐️" : String(date.getDate())));
+      spot.appendChild(el("div", "dot"));
     }
     day.appendChild(spot);
     days.appendChild(day);
@@ -401,7 +446,6 @@ function previewHub(message) {
   // The real hub answers with a new list; here the page's own change stands.
   setTimeout(() => pending.delete(message.itemID), 200);
 }
-
 </script>
 <script>if (PREVIEW) document.write('<script src="preview-data.js"><\/script>');</script>
 </body>
